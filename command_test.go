@@ -1396,6 +1396,15 @@ func TestFlagErrorFunc(t *testing.T) {
 	}
 }
 
+func TestIgnoreUnknownFlags(t *testing.T) {
+	c := &Command{Use: "c", Run: emptyRun, IgnoreUnknownFlags: true}
+
+	_, err := executeCommand(c, "--unknown-flag")
+	if err != nil {
+		t.Errorf("Expected err to be nil, got %v", err)
+	}
+}
+
 // TestSortedFlags checks,
 // if cmd.LocalFlags() is unsorted when cmd.Flags().SortFlags set to false.
 // Related to https://github.com/spf13/cobra/issues/404.
