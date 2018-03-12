@@ -130,6 +130,10 @@ type Command struct {
 	// DisableSuggestions disables the suggestions based on Levenshtein distance
 	// that go along with 'unknown command' messages.
 	DisableSuggestions bool
+
+	// IgnoreUnknownFlags silently ignores the unknown flags instead of erroring out
+	IgnoreUnknownFlags bool
+
 	// SuggestionsMinimumDistance defines minimum levenshtein distance to display suggestions.
 	// Must be > 0.
 	SuggestionsMinimumDistance int
@@ -441,6 +445,11 @@ func (c *Command) VersionTemplate() string {
 `
 }
 
+func knownFlag(name string, fs *flag.FlagSet) bool {
+	flag := fs.Lookup(name)
+	return flag != nil
+}
+
 func hasNoOptDefVal(name string, fs *flag.FlagSet) bool {
 	flag := fs.Lookup(name)
 	if flag == nil {
@@ -459,6 +468,57 @@ func shortHasNoOptDefVal(name string, fs *flag.FlagSet) bool {
 		return false
 	}
 	return flag.NoOptDefVal != ""
+}
+
+func stripUnknownFlags(args []string, c *Command) []string {
+	if len(args) == 0 {
+		return args
+	}
+
+	var stripped []string
+	flags := c.Flags()
+
+	for len(args) > 0 {
+		s := args[0]
+		args = args[1:]
+
+		if !isFlagArg(s) {
+			stripped = append(stripped, s)
+			continue
+		}
+
+		var flagName string
+
+		switch {
+		case strings.HasPrefix(s, "--"):
+			flagName = s[2:]
+		case strings.HasPrefix(s, "-"):
+			flagName = s[1:]
+		}
+
+		if knownFlag(flagName, flags) {
+			stripped = append(stripped, s)
+			continue
+		}
+
+		if len(args) == 0 {
+			break
+		}
+
+		//--unknown --nextflag ...
+		if isFlagArg(args[0]) {
+			continue
+		}
+
+		//--unknown known-subcommand ...
+		if c.findNext(args[0]) != nil {
+			continue
+		}
+
+		//--unknown unknownvalue ...
+		args = args[1:]
+	}
+	return stripped
 }
 
 func stripFlags(args []string, c *Command) []string {
@@ -823,6 +883,11 @@ func (c *Command) ExecuteC() (cmd *Command, err error) {
 	} else {
 		cmd, flags, err = c.Find(args)
 	}
+
+	if cmd.IgnoreUnknownFlags {
+		flags = stripUnknownFlags(flags, cmd)
+	}
+
 	if err != nil {
 		// If found parse to a subcommand and then failed, talk about the subcommand
 		if cmd != nil {
